@@ -6,7 +6,7 @@ Grab the pretrained weights of yolo3 from https://pjreddie.com/media/files/yolov
 
 Add downloaded yolov3 weights into keras-yolov3-generic folder. Edit the line below in RunMeToDoSTuff.py. Set path to folder, specify a name for your model
 
-Run this line in RunMeToDoSTuff.py
+Run this line in RunMeToDoStuff.py
 
 #os.system("python create.py -w Path_to_current_folder -m NewModelName.h5")
 
@@ -59,7 +59,7 @@ edit the config.json to alter training settings, add paths, labels and names
     }
 }
 
-Run this line in RunMeToDoSTuff.py
+Run this line in RunMeToDoStuff.py
 
 #os.system("python train.py -c config.json")
 
@@ -109,7 +109,7 @@ Run this line in RunMeToDoSTuff.py
     }
 }
 
-Run this line in RunMeToDoSTuff.py
+Run this line in RunMeToDoStuff.py
 
 #os.system("python evaluate.py -c eval_config.json")
 
@@ -117,7 +117,7 @@ Run this line in RunMeToDoSTuff.py
 
 Put images into test_images folder
 
-Run this line in RunMeToDoSTuff.py
+Run this line in RunMeToDoStuff.py
 
 #os.system("python predict.py -c config.json -i Path to test_images folder -o Path to output folder")
 
