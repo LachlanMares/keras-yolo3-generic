@@ -6,7 +6,7 @@ Grab the pretrained weights of yolo3 from https://pjreddie.com/media/files/yolov
 
 Add downloaded yolov3 weights into keras-yolov3-generic folder. Edit the line below in RunMeToDoSTuff.py. Set path to folder, specify a name for your model
 
-Run
+Run this line in RunMeToDoSTuff.py
 #os.system("python create.py -w Path_to_current_folder -m NewModelName.h5")
 
 ## Training
