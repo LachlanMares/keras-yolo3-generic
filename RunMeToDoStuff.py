@@ -1,17 +1,17 @@
 import os
 
-#Build new keras model by loading/converting pre-trained yolov3 weights
-#os.system("python create.py -w Path_to_current_folder -m NewModelName.h5")
+#Build new keras model by loading/converting pre-trained weights
+#os.system("python create.py -w .../yolov3.weights -m .h5")
 
-#Train - edit config.json to alter training settings, add paths, labels and names
+#Train - edit config.json to alter training settings, currently using auto train/valid split
 #os.system("python train.py -c config.json")
 
-#Re-train - edit retrain_config.json to alter training settings, add paths, labels and names
-#os.system("python train.py -c retrain_config.json")
+#Re-train
+#os.system("python train.py -c config.json -r retrain")
 
-#Evaluate, edit eval_config.json, put some images in eval_images and eval_images annotations into eval_annotations
-#os.system("python evaluate.py -c eval_config.json")
+#Evaluate, put some images in eval_images and images annotations into eval_annotations
+#os.system("python evaluate.py -c config.json")
 
 #Predict, put images into test_images folder
-#os.system("python predict.py -c config.json -i Path to test_images folder -o Path to output folder")
+#os.system("python predict.py -c config.json -i .../test_images/ -o .../output/")
 

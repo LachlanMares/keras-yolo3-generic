@@ -165,6 +165,11 @@ def create_model(
 
 def _main_(args):
     config_path = args.conf
+    retrain = args.retrain
+    if retrain is None:
+        retrain = True
+    else:
+        retrain = False
 
     with open(config_path) as config_buffer:    
         config = json.loads(config_buffer.read())
@@ -217,45 +222,85 @@ def _main_(args):
     ###############################
     #   Create the model 
     ###############################
-    if os.path.exists(config['train']['saved_weights_name']): 
-        config['train']['warmup_epochs'] = 0
-    warmup_batches = config['train']['warmup_epochs'] * (config['train']['train_times']*len(train_generator))   
+
+    if retrain:
+        if os.path.exists(config['train']['saved_weights_name']):
+            config['retrain']['warmup_epochs'] = 0
+        warmup_batches = config['retrain']['warmup_epochs'] * (config['retrain']['train_times'] * len(train_generator))
+
+    else:
+        if os.path.exists(config['train']['saved_weights_name']):
+            config['train']['warmup_epochs'] = 0
+        warmup_batches = config['train']['warmup_epochs'] * (config['train']['train_times'] * len(train_generator))
 
     os.environ['CUDA_VISIBLE_DEVICES'] = config['train']['gpus']
     multi_gpu = len(config['train']['gpus'].split(','))
 
-    train_model, infer_model = create_model(
-        nb_class            = len(labels), 
-        anchors             = config['model']['anchors'], 
-        max_box_per_image   = max_box_per_image, 
-        max_grid            = [config['model']['max_input_size'], config['model']['max_input_size']], 
-        batch_size          = config['train']['batch_size'], 
-        warmup_batches      = warmup_batches,
-        ignore_thresh       = config['train']['ignore_thresh'],
-        multi_gpu           = multi_gpu,
-        saved_weights_name  = config['train']['saved_weights_name'],
-        lr                  = config['train']['learning_rate'],
-        grid_scales         = config['train']['grid_scales'],
-        obj_scale           = config['train']['obj_scale'],
-        noobj_scale         = config['train']['noobj_scale'],
-        xywh_scale          = config['train']['xywh_scale'],
-        class_scale         = config['train']['class_scale'],
-    )
+    if retrain:
+        train_model, infer_model = create_model(
+            nb_class            = len(labels),
+            anchors             = config['model']['anchors'],
+            max_box_per_image   = max_box_per_image,
+            max_grid            = [config['model']['max_input_size'], config['model']['max_input_size']],
+            batch_size          = config['train']['batch_size'],
+            warmup_batches      = warmup_batches,
+            ignore_thresh       = config['retrain']['ignore_thresh'],
+            multi_gpu           = multi_gpu,
+            saved_weights_name  = config['train']['saved_weights_name'],
+            lr                  = config['retrain']['learning_rate'],
+            grid_scales         = config['train']['grid_scales'],
+            obj_scale           = config['train']['obj_scale'],
+            noobj_scale         = config['train']['noobj_scale'],
+            xywh_scale          = config['train']['xywh_scale'],
+            class_scale         = config['train']['class_scale'],
+        )
+
+    else:
+        train_model, infer_model = create_model(
+            nb_class            = len(labels),
+            anchors             = config['model']['anchors'],
+            max_box_per_image   = max_box_per_image,
+            max_grid            = [config['model']['max_input_size'], config['model']['max_input_size']],
+            batch_size          = config['train']['batch_size'],
+            warmup_batches      = warmup_batches,
+            ignore_thresh       = config['train']['ignore_thresh'],
+            multi_gpu           = multi_gpu,
+            saved_weights_name  = config['train']['saved_weights_name'],
+            lr                  = config['train']['learning_rate'],
+            grid_scales         = config['train']['grid_scales'],
+            obj_scale           = config['train']['obj_scale'],
+            noobj_scale         = config['train']['noobj_scale'],
+            xywh_scale          = config['train']['xywh_scale'],
+            class_scale         = config['train']['class_scale'],
+        )
 
     ###############################
     #   Kick off the training
     ###############################
+
     callbacks = create_callbacks(config['train']['saved_weights_name'], config['train']['tensorboard_dir'], infer_model)
 
-    train_model.fit_generator(
-        generator        = train_generator, 
-        steps_per_epoch  = len(train_generator) * config['train']['train_times'], 
-        epochs           = config['train']['nb_epochs'] + config['train']['warmup_epochs'], 
-        verbose          = 2 if config['train']['debug'] else 1,
-        callbacks        = callbacks, 
-        workers          = 4,
-        max_queue_size   = 8
-    )
+    if retrain:
+        train_model.fit_generator(
+            generator        = train_generator,
+            steps_per_epoch  = len(train_generator) * config['retrain']['train_times'],
+            epochs           = config['retrain']['nb_epochs'] + config['retrain']['warmup_epochs'],
+            verbose          = 2 if config['train']['debug'] else 1,
+            callbacks        = callbacks,
+            workers          = 4,
+            max_queue_size   = 8
+        )
+
+    else:
+        train_model.fit_generator(
+            generator        = train_generator,
+            steps_per_epoch  = len(train_generator) * config['train']['train_times'],
+            epochs           = config['train']['nb_epochs'] + config['train']['warmup_epochs'],
+            verbose          = 2 if config['train']['debug'] else 1,
+            callbacks        = callbacks,
+            workers          = 4,
+            max_queue_size   = 8
+        )
 
     # make a GPU version of infer_model for evaluation
     if multi_gpu > 1:
@@ -265,6 +310,7 @@ def _main_(args):
     #   Run the evaluation
     ###############################   
     # compute mAP for all the classes
+
     average_precisions = evaluate(infer_model, valid_generator)
 
     # print the score
@@ -272,9 +318,11 @@ def _main_(args):
         print(labels[label] + ': {:.4f}'.format(average_precision))
     print('mAP: {:.4f}'.format(sum(average_precisions.values()) / len(average_precisions)))           
 
+
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser(description='train and evaluate YOLO_v3 model on any dataset')
-    argparser.add_argument('-c', '--conf', help='path to configuration file')   
+    argparser.add_argument('-c', '--conf', help='path to configuration file')
+    argparser.add_argument('-r', '--retrain', help='retrain model')
 
     args = argparser.parse_args()
     _main_(args)
