@@ -167,9 +167,9 @@ def _main_(args):
     config_path = args.conf
     retrain = args.retrain
     if retrain is None:
-        retrain = True
-    else:
         retrain = False
+    else:
+        retrain = True
 
     with open(config_path) as config_buffer:    
         config = json.loads(config_buffer.read())
