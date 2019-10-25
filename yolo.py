@@ -1,4 +1,4 @@
-from keras.layers import Conv2D, Input, BatchNormalization, LeakyReLU, ZeroPadding2D, UpSampling2D, Lambda
+from keras.layers import Conv2D, Input, BatchNormalization, LeakyReLU, ZeroPadding2D, UpSampling2D, MaxPool2D, Lambda
 from keras.layers.merge import add, concatenate
 from keras.models import Model
 from keras.engine.topology import Layer
@@ -105,7 +105,8 @@ class YoloLayer(Layer):
 
         """
         Compute some online statistics
-        """            
+        """
+
         true_xy = true_box_xy / grid_factor
         true_wh = tf.exp(true_box_wh) * self.anchors / net_factor
 
@@ -194,6 +195,7 @@ class YoloLayer(Layer):
     def compute_output_shape(self, input_shape):
         return [(None, 1)]
 
+
 def _conv_block(inp, convs, do_skip=True):
     x = inp
     count = 0
@@ -213,7 +215,132 @@ def _conv_block(inp, convs, do_skip=True):
         if conv['bnorm']: x = BatchNormalization(epsilon=0.001, name='bnorm_' + str(conv['layer_idx']))(x)
         if conv['leaky']: x = LeakyReLU(alpha=0.1, name='leaky_' + str(conv['layer_idx']))(x)
 
-    return add([skip_connection, x]) if do_skip else x        
+    return add([skip_connection, x]) if do_skip else x
+
+
+def _conv_2D(x, conv):
+
+    if conv['stride'] > 1: x = ZeroPadding2D(((1, 0), (1, 0)))(x)  # unlike tensorflow darknet prefer left and top paddings
+
+    x = Conv2D(conv['filter'],
+               conv['kernel'],
+               strides=conv['stride'],
+               padding='valid' if conv['stride'] > 1 else 'same',  # unlike tensorflow darknet prefer left and top paddings
+               name='conv_' + str(conv['layer_idx']),
+               use_bias=False if conv['bnorm'] else True)(x)
+
+    if conv['bnorm']: x = BatchNormalization(epsilon=0.001, name='bnorm_' + str(conv['layer_idx']))(x)
+    if conv['leaky']: x = LeakyReLU(alpha=0.1, name='leaky_' + str(conv['layer_idx']))(x)
+
+    return x
+
+
+def create_yolov3_tiny_model(
+        nb_class,
+        anchors,
+        max_box_per_image,
+        max_grid,
+        batch_size,
+        warmup_batches,
+        ignore_thresh,
+        grid_scales,
+        obj_scale,
+        noobj_scale,
+        xywh_scale,
+        class_scale
+):
+    input_image = Input(shape=(None, None, 3)) # net_h, net_w, 3
+    true_boxes  = Input(shape=(1, 1, 1, max_box_per_image, 4))
+    true_yolo_1 = Input(shape=(None, None, len(anchors)//6, 4+1+nb_class)) # grid_h, grid_w, nb_anchor, 5+nb_class
+    true_yolo_2 = Input(shape=(None, None, len(anchors)//6, 4+1+nb_class)) # grid_h, grid_w, nb_anchor, 5+nb_class
+    true_yolo_3 = Input(shape=(None, None, len(anchors)//6, 4+1+nb_class)) # grid_h, grid_w, nb_anchor, 5+nb_class
+
+    x = _conv_block(input_image, [{'filter': 32, 'kernel': 3, 'stride': 1, 'bnorm': True, 'leaky': True, 'layer_idx': 0},
+                                  {'filter': 64, 'kernel': 3, 'stride': 1, 'bnorm': True, 'leaky': True, 'layer_idx': 1},
+                                  {'filter': 32, 'kernel': 1, 'stride': 1, 'bnorm': True, 'leaky': True, 'layer_idx': 2},
+                                  {'filter': 64, 'kernel': 3, 'stride': 1, 'bnorm': True, 'leaky': True, 'layer_idx': 3}])
+    x = MaxPool2D(pool_size=2, strides=2, padding='same', name='maxpool_0')(x) # Layer 4
+
+    x = _conv_block(x, [{'filter': 32, 'kernel': 1, 'stride': 1, 'bnorm': True, 'leaky': True, 'layer_idx': 5},
+                        {'filter': 64, 'kernel': 3, 'stride': 1, 'bnorm': True, 'leaky': True, 'layer_idx': 6}])
+    x = MaxPool2D(pool_size=2, strides=2, padding='same', name='maxpool_1')(x) # Layer 7
+
+    x = _conv_block(x, [{'filter': 64, 'kernel': 1, 'stride': 1, 'bnorm': True, 'leaky': True, 'layer_idx': 7},
+                        {'filter': 64, 'kernel': 3, 'stride': 1, 'bnorm': True, 'leaky': True, 'layer_idx': 8}])
+    x = MaxPool2D(pool_size=2, strides=2, padding='same', name='maxpool_2')(x) # Layer 9
+
+    x = _conv_2D(x, {'filter': 128, 'kernel': 3, 'stride': 1, 'bnorm': True, 'leaky': True, 'layer_idx': 10})
+    layer_10 = x
+    x = MaxPool2D(pool_size=2, strides=2, padding='same', name='maxpool_3')(x) # Layer 11
+
+    x = _conv_2D(x, {'filter': 256, 'kernel': 3, 'stride': 1, 'bnorm': True, 'leaky': True, 'layer_idx': 12})
+    layer_12 = x
+    x = MaxPool2D(pool_size=2, strides=2, padding='same', name='maxpool_4')(x) # Layer 13
+
+    x = _conv_2D(x, {'filter': 512, 'kernel': 3, 'stride': 1, 'bnorm': True, 'leaky': True, 'layer_idx': 14}) # Layer 14
+    x = MaxPool2D(pool_size=2, strides=1, padding='same', name='maxpool_5')(x) # Layer 15
+
+    x = _conv_block(x, [{'filter': 1024, 'kernel': 3, 'stride': 1, 'bnorm': True, 'leaky': True, 'layer_idx': 16},
+                        {'filter': 512, 'kernel': 1, 'stride': 1, 'bnorm': True, 'leaky': True, 'layer_idx': 17}])
+
+    pred_yolo_1 = _conv_block(x, [{'filter': 512, 'kernel': 3, 'stride': 1, 'bnorm': True, 'leaky': True, 'layer_idx': 18}, # Layer 18
+                                  {'filter': (3 * (5 + nb_class)), 'kernel': 1, 'stride': 1, 'bnorm': False, 'leaky': False, 'layer_idx': 19}], do_skip=False) # Layer 19
+
+    loss_yolo_1 = YoloLayer(anchors[12:],
+                            [1 * num for num in max_grid],
+                            batch_size,
+                            warmup_batches,
+                            ignore_thresh,
+                            grid_scales[0],
+                            obj_scale,
+                            noobj_scale,
+                            xywh_scale,
+                            class_scale)([input_image, pred_yolo_1, true_yolo_1, true_boxes]) # Layer 20
+
+    # Layer 21
+    x = _conv_2D(x, {'filter': 128, 'kernel': 1, 'stride': 1, 'bnorm': True, 'leaky': True, 'layer_idx': 22}) # Layer 22
+    x = UpSampling2D(2)(x) # Layer 23
+    x = concatenate([x, layer_12]) # Layer 24
+
+    pred_yolo_2 = _conv_block(x, [{'filter': 256, 'kernel': 3, 'stride': 1, 'bnorm': True, 'leaky': True, 'layer_idx': 25}, # Layer 25
+                                  {'filter': (3 * (5 + nb_class)), 'kernel': 1, 'stride': 1, 'bnorm': False, 'leaky': False, 'layer_idx': 26}], do_skip=False) # Layer 26
+
+    loss_yolo_2 = YoloLayer(anchors[6:12],
+                            [2 * num for num in max_grid],
+                            batch_size,
+                            warmup_batches,
+                            ignore_thresh,
+                            grid_scales[1],
+                            obj_scale,
+                            noobj_scale,
+                            xywh_scale,
+                            class_scale)([input_image, pred_yolo_2, true_yolo_2, true_boxes]) # Layer 27
+    # Layer 28
+    x = _conv_block(x, [{'filter': 128, 'kernel': 1, 'stride': 1, 'bnorm': True, 'leaky': True,   'layer_idx': 29}], do_skip=False) # Layer 29
+    x = UpSampling2D(2)(x) # Layer 30
+    x = concatenate([x, layer_10]) # Layer 31
+
+    pred_yolo_3 = _conv_block(x, [{'filter': 256, 'kernel': 3, 'stride': 1, 'bnorm': True, 'leaky': True, 'layer_idx': 32},
+                                  {'filter': 128, 'kernel': 1, 'stride': 1, 'bnorm': True, 'leaky': True, 'layer_idx': 33},
+                                  {'filter': 256, 'kernel': 3, 'stride': 1, 'bnorm': True, 'leaky': True, 'layer_idx': 34},
+                                  {'filter': (3*(5+nb_class)), 'kernel': 1, 'stride': 1, 'bnorm': False, 'leaky': False, 'layer_idx': 35}], do_skip=False)
+
+    loss_yolo_3 = YoloLayer(anchors[:6],
+                            [4*num for num in max_grid],
+                            batch_size,
+                            warmup_batches,
+                            ignore_thresh,
+                            grid_scales[2],
+                            obj_scale,
+                            noobj_scale,
+                            xywh_scale,
+                            class_scale)([input_image, pred_yolo_3, true_yolo_3, true_boxes]) # Layer 36
+
+    train_model = Model([input_image, true_boxes, true_yolo_1, true_yolo_2, true_yolo_3], [loss_yolo_1, loss_yolo_2, loss_yolo_3])
+    infer_model = Model(input_image, [pred_yolo_1, pred_yolo_2, pred_yolo_3])
+
+    return [train_model, infer_model]
+
 
 def create_yolov3_model(
     nb_class, 

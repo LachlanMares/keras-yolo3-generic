@@ -1,132 +1,94 @@
 #! /usr/bin/env python
-
 import os
 import argparse
 import json
 import cv2
-from utils.utils import get_yolo_boxes, makedirs
-from utils.bbox import draw_boxes
+from utils.utils import get_yolo_boxes
+from utils.colors import get_color
 from keras.models import load_model
-from tqdm import tqdm
 import numpy as np
+import glob
+from lxml import etree as ET
 
 def _main_(args):
     config_path  = args.conf
-    input_path   = args.input
-    output_path  = args.output
 
     with open(config_path) as config_buffer:    
         config = json.load(config_buffer)
 
-    makedirs(output_path)
+    print_out = config['model']['print']
+    image_out = config['model']['image']
+    tiny = config['model']['tiny']
 
-    ###############################
-    #   Set some parameter
-    ###############################       
-    net_h, net_w = 416, 416 # a multiple of 32, the smaller the faster
-    obj_thresh, nms_thresh = 0.5, 0.45
+    # load variables from config file
+    net_h, net_w = config['model']['net_h'], config['model']['net_w'] # a multiple of 32, the smaller the faster
+    obj_thresh, nms_thresh = config['model']['obj_thresh'], config['model']['nms_thresh']
+    labels = config['model']['labels']
+    anchors = config['model']['anchors']
 
-    ###############################
-    #   Load the model
-    ###############################
-    os.environ['CUDA_VISIBLE_DEVICES'] = config['train']['gpus']
+    # check for CPU or GPU(s)
+    os.environ['CUDA_VISIBLE_DEVICES'] = config['model']['gpus']
+
+    # load model weights
     infer_model = load_model(config['train']['saved_weights_name'])
 
-    ###############################
-    #   Predict bounding boxes 
-    ###############################
-    if 'webcam' in input_path: # do detection on the first webcam
-        video_reader = cv2.VideoCapture(0)
+    # gather file paths
+    output_path = config['model']['output_folder']
+    test_image_path = config['model']['test_images']
 
-        # the main loop
-        batch_size  = 1
-        images      = []
-        while True:
-            ret_val, image = video_reader.read()
-            if ret_val == True: images += [image]
+    image_paths = glob.glob(test_image_path + '*.png')
 
-            if (len(images)==batch_size) or (ret_val==False and len(images)>0):
-                batch_boxes = get_yolo_boxes(infer_model, images, net_h, net_w, config['model']['anchors'], obj_thresh, nms_thresh)
+    # loop through the images
+    for k,image_path in enumerate(image_paths):
 
-                for i in range(len(images)):
-                    draw_boxes(images[i], batch_boxes[i], config['model']['labels'], obj_thresh) 
-                    cv2.imshow('video with bboxes', images[i])
-                images = []
-            if cv2.waitKey(1) == 27: 
-                break  # esc to quit
-        cv2.destroyAllWindows()        
-    elif input_path[-4:] == '.mp4': # do detection on a video  
-        video_out = output_path + input_path.split('/')[-1]
-        video_reader = cv2.VideoCapture(input_path)
+        # open first image in folder
+        image = cv2.imread(image_path)
+        image_name = image_path.split("\\")[-1]
+        image_title = image_name.split('.')[0]
 
-        nb_frames = int(video_reader.get(cv2.CAP_PROP_FRAME_COUNT))
-        frame_h = int(video_reader.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        frame_w = int(video_reader.get(cv2.CAP_PROP_FRAME_WIDTH))
+        boxes = get_yolo_boxes(infer_model, [image], net_h, net_w, anchors, obj_thresh, nms_thresh)[0]
+        if print_out:
+            print('\n',image_name," 40ft Model")
 
-        video_writer = cv2.VideoWriter(video_out,
-                               cv2.VideoWriter_fourcc(*'MPEG'), 
-                               50.0, 
-                               (frame_w, frame_h))
-        # the main loop
-        batch_size  = 1
-        images      = []
-        start_point = 0 #%
-        show_window = False
-        for i in tqdm(range(nb_frames)):
-            _, image = video_reader.read()
-
-            if (float(i+1)/nb_frames) > start_point/100.:
-                images += [image]
-
-                if (i%batch_size == 0) or (i == (nb_frames-1) and len(images) > 0):
-                    # predict the bounding boxes
-                    batch_boxes = get_yolo_boxes(infer_model, images, net_h, net_w, config['model']['anchors'], obj_thresh, nms_thresh)
-
-                    for i in range(len(images)):
-                        # draw bounding boxes on the image using labels
-                        draw_boxes(images[i], batch_boxes[i], config['model']['labels'], obj_thresh)   
-
-                        # show the video with detection bounding boxes          
-                        if show_window: cv2.imshow('video with bboxes', images[i])  
-
-                        # write result to the output video
-                        video_writer.write(images[i]) 
-                    images = []
-                if show_window and cv2.waitKey(1) == 27: break  # esc to quit
-
-        if show_window: cv2.destroyAllWindows()
-        video_reader.release()
-        video_writer.release()       
-    else: # do detection on an image or a set of images
-        image_paths = []
-
-        if os.path.isdir(input_path): 
-            for inp_file in os.listdir(input_path):
-                image_paths += [input_path + inp_file]
+        # create an etree
+        if tiny:
+            dataset = ET.Element('dataset', name=config['model']['name'], comment="yolov3_tiny")
         else:
-            image_paths += [input_path]
+            dataset = ET.Element('dataset', name=config['model']['name'], comment="yolov3")
 
-        image_paths = [inp_file for inp_file in image_paths if (inp_file[-4:] in ['.jpg', '.png', 'JPEG'])]
+        image_container = ET.SubElement(dataset, 'image', Name=image_name)
 
-        # the main loop
-        for image_path in image_paths:
-            image = cv2.imread(image_path)
-            print(image_path)
+        # loop through the predictions
+        for box in boxes:
+            label = -1
+            score = ""
 
-            # predict the bounding boxes
-            boxes = get_yolo_boxes(infer_model, [image], net_h, net_w, config['model']['anchors'], obj_thresh, nms_thresh)[0]
+            # loop through the labels
+            for i in range(len(labels)):
+                if box.classes[i] > obj_thresh:
+                    score = str(round(box.get_score() * 100, 2))+'%'
+                    label = i
 
-            # draw bounding boxes on the image using labels
-            draw_boxes(image, boxes, config['model']['labels'], obj_thresh) 
-     
-            # write the image with bounding boxes to file
-            cv2.imwrite(output_path + image_path.split('/')[-1], np.uint8(image))         
+            if label >= 0:
+                ymin_s, xmin_s, ymax_s, xmax_s = str(box.ymin), str(box.xmin), str(box.ymax), str(box.xmax)
+
+                new_label = ET.SubElement(image_container,'bounding_box', object=labels[label], score=score, Ymin=ymin_s, Xmin=xmin_s, Ymax=ymax_s, Xmax=xmax_s)
+                image_container.append(new_label)
+
+                if print_out:
+                    print(labels[label]+' '+score+' Ymin='+ymin_s+' Xmin='+xmin_s+' Ymax='+ymax_s+' Xmax='+xmax_s)
+                if image_out:
+                    cv2.rectangle(img=image, pt1=(box.xmin, box.ymin), pt2=(box.xmax, box.ymax), color=get_color(label), thickness=1)
+
+        tree = ET.ElementTree(dataset)
+        tree.write(output_path + image_title+'.xml', pretty_print=True, xml_declaration=True, encoding="ISO-8859-1")
+
+        if image_out:
+            cv2.imwrite(output_path + image_name, np.uint8(image))
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser(description='Predict with a trained yolo model')
     argparser.add_argument('-c', '--conf', help='path to configuration file')
-    argparser.add_argument('-i', '--input', help='path to an image, a directory of images, a video, or webcam')    
-    argparser.add_argument('-o', '--output', default='output/', help='path to output directory')   
-    
+
     args = argparser.parse_args()
     _main_(args)
