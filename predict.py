@@ -16,13 +16,13 @@ def _main_(args):
     with open(config_path) as config_buffer:    
         config = json.load(config_buffer)
 
-    print_out = config['model']['print']
-    image_out = config['model']['image']
+    print_out = config['predict']['print']
+    image_out = config['predict']['image']
     tiny = config['model']['tiny']
 
     # load variables from config file
-    net_h, net_w = config['model']['net_h'], config['model']['net_w'] # a multiple of 32, the smaller the faster
-    obj_thresh, nms_thresh = config['model']['obj_thresh'], config['model']['nms_thresh']
+    net_h, net_w = config['predict']['net_h'], config['predict']['net_w'] # a multiple of 32, the smaller the faster
+    obj_thresh, nms_thresh = config['predict']['obj_thresh'], config['predict']['nms_thresh']
     labels = config['model']['labels']
     anchors = config['model']['anchors']
 
@@ -33,8 +33,8 @@ def _main_(args):
     infer_model = load_model(config['train']['saved_weights_name'])
 
     # gather file paths
-    output_path = config['model']['output_folder']
-    test_image_path = config['model']['test_images']
+    output_path = config['predict']['output_folder']
+    test_image_path = config['predict']['test_images']
 
     image_paths = glob.glob(test_image_path + '*.png')
 

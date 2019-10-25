@@ -2,15 +2,9 @@
     "model" : {
         "min_input_size":       132,
         "max_input_size":       448,
-        "net_h":                416,
-        "net_w":                416,
-        "obj_thresh":           0.5,
-        "nms_thresh":           0.25,
         "anchors":              [10,13,  16,30,  33,23,  30,61,  62,45,  59,119,  116,90,  156,198,  373,326],
         "labels":               ["obj 1","obj 2","obj 3","obj 4"],
         "name":                 "model_name",
-        "print":                false,
-        "image":                true,
         "tiny":                 true
     },
 
@@ -59,5 +53,18 @@
     "evaluate": {
         "eval_image_folder":    "Path to eval_images",
         "eval_annot_folder":    "Path to eval_annotations/"
+    },
+
+    "predict": {
+        "test_images":          "Path to test_images",
+        "output_folder":        "Path to output",
+        "net_h":                416,
+        "net_w":                416,
+        "obj_thresh":           0.5,
+        "nms_thresh":           0.5,
+        "print":                false,
+        "image":                true
+
     }
+
 }
