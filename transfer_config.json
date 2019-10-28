@@ -1,0 +1,7 @@
+{
+    "path" : {
+        "folder":                        "new_annotations",
+        "annotations_path":              "C:/Users/Lachlan/PycharmProjects/keras-yolo3/new_annotations/",
+        "print":                         true
+    }
+}
