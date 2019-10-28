@@ -22,7 +22,7 @@ Edit config.json. set your label names, specify a name for your model, set tiny 
 
 Edit the line below in RunMeToDoSTuff.py. Set path to weights file, then run it
 
-#os.system("python create.py -w Path -c config.json")
+#os.system("python create.py -c config.json")
 
 ## Training
 
